@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-sre
+  namespace: prod
+  labels:
+    name: web-app-deploy
+spec:
+  selector:
+    matchLabels:
+      name: web-app-pod
+  strategy:
+  # Стратегия обновления
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name:  web-app-pod
+    spec:
+      # Запуск подов на разных нодах
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchExpressions:
+                  - key: name
+                    operator: In
+                    values:
+                    - web-app-pod
+            namespaces:
+            - prod
+      containers:
+      - image:  imagerepo/imagename:version
+        name:  web-app-container
+        # Ограничения ресурсов
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128M"
+          limits:
+            cpu: "150m"
+            memory: "130M"
+        # Проверка что приложение работает
+        livenessProbe:
+          httpGet:
+            path: /_status/healthz
+            port: 5000
+          # Задержка 10с на иницицализацию
+          initialDelaySeconds: 10
+        # Проверка что приложение готово принимать запросы
+        readinessProbe:
+          httpGet:
+            path: /_status/healthz
+            port: 5000
+          initialDelaySeconds: 10
+        # переменная окружения для приложения
+        env:
+        - name:  env
+          value:  prod
+        ports:
+        - containerPort:  5000
+          name:  web-app-container
+      restartPolicy: Always
+      imagePullPolicy: Always
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: app-hpa
+  namespace: prod
+  labels:
+    name: web-app-hpa
+spec:
+  minReplicas: 1
+  maxReplicas: 4
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: test-sre
+  metrics:
+  # Скелинг подов по ресурсам и количесву такетов
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Pods
+    pods:
+      metric:
+        name: packets-per-second
+      target:
+        type: AverageValue
+        averageValue: 1k
